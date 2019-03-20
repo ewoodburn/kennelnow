@@ -23,6 +23,7 @@ IS
   -- 2. Implemetation of prototype UI              SV 02-DEC-2018
   -- 3. Implementation of activation, deactivation and waitlist code    SV 08-FEB-2019
   -- 4. Removed all tt_ references with local synonyms                  SS 14-FEB-2019
+  -- 5. Added distrubution syntax                                       SV 04-Mr-2019
   ------------------------------------------------------------------------------------------------------
   ------------------------------------------------------------------------------------------------------
   /* Global type and variable declarations for package */
@@ -52,6 +53,9 @@ IS
     v_message varchar(500) := 'HI';
     v_success_out varchar(2);
     v_reply_out varchar(2);
+    deactivation_end DATE;
+    activation_begin DATE;
+    activation_end DATE;
     
      
     
@@ -86,6 +90,22 @@ IS
     --looping through all the games in the season as outputted by the cursor
     FOR output IN c_get_Game_Info
     LOOP
+
+    
+    
+        SELECT slbdist_deactivation_end into deactivation_end
+        FROM slbdist
+        WHERE slbdist_crn = output.slbevnt_crn;
+        
+        SELECT slbdist_activation_end into activation_end
+        FROM slbdist
+        WHERE slbdist_crn = output.slbevnt_crn;
+        
+        SELECT slbdist_activation_begin into activation_begin
+        FROM slbdist
+        WHERE slbdist_crn = output.slbevnt_crn;
+        
+
     
         -- gameName = REPLACE(REPLACE(output.slbevnt_DESC,'MBB vs ',''));
         
@@ -130,7 +150,7 @@ IS
         htp.p('<br />');       
         htp.p('<tr>');
         htp.p('<td CLASS="indefault">');
-        htp.p('<SPAN class="newText">Number of tickets Available:  </SPAN>');
+        htp.p('<SPAN class="newText">Number of Tickets Available:  </SPAN>');
         htp.p('<SPAN class="newText">' || ticketsAvailable ||'</SPAN>');
         htp.p('</td>');
         htp.p('</tr>');      
@@ -145,8 +165,10 @@ IS
         htp.p('<br />');
 
         
-        --If student has a ticket to the current game
-         if statusLabel = 'Ticket' then
+        --If student has a ticket to the current game and it's before the deactivation end period
+         if statusLabel = 'Ticket' and TO_DATE('02-NOV-19', 'dd-mon-yy') < deactivation_end then
+            --htp.formOpen(cname=>'p_ticketStatus',cvalue=> buttonName);
+
             --Display deactivate ticket button
             --setting the button's name to reflect the current game
             buttonName := 'Deactivate Ticket For ' ||  REPLACE(REPLACE(output.slbevnt_DESC,'MBB vs ',''),18,'');
@@ -236,27 +258,64 @@ IS
                 
             end if;
         
-        --they do not have a ticket to the game  
-        else
+        --they have a ticket, but they can no longer deactivate it
+        elsif statusLabel = 'Ticket' and TO_DATE('02-NOV-19', 'dd-mon-yy') > deactivation_end then
+            --htp.formClose(cname=>'p_ticketStatus',cvalue=> buttonName);
+            
+            --if the current date is after the game's date and the deactivation period is done, then we want to tell them this game is over
+            if TO_DATE('02-NOV-19', 'dd-mon-yy') > output.ssrmeet_start_date then
+                htp.p('<tr>');
+                htp.p('<td CLASS="indefault">');
+                htp.p('<SPAN class="newText">This game has passed.  </SPAN>');
+                htp.p('</td>');
+                htp.p('</tr>');      
+                htp.p('<br />');
+            else
+                htp.p('<tr>');
+                htp.p('<td CLASS="indefault">');
+                htp.p('<SPAN class="newText">The deactivation period has closed. You you can no longer deactivate your ticket.  </SPAN>');
+                htp.p('</td>');
+                htp.p('</tr>');      
+                htp.p('<br />');
+            end if;
+            
+            
+            
+
+        
+        
+        --they do not have a ticket to the game and they are within the activation period  
+         elsif statusLabel = 'No Ticket' and activation_begin < '02-NOV-17' and  '02-NOV-17' < activation_end then
+            --need to reopen the form
+            --htp.formOpen(cname=>'p_ticketStatus',cvalue=> buttonName);
+
+            
             --if tickets are available
             if ticketsAvailable > 0 then
               --setting the button's name to reflect the current game
                 buttonName := 'Request Ticket For ' ||  REPLACE(REPLACE(output.slbevnt_DESC,'MBB vs ',''),18,'');
                 htp.formsubmit(cname=>'p_ticketStatus',cvalue=> buttonName);
-            
                 -- activate button selected
                 --change the ticket status so the student has a ticket
                 if p_ticketStatus = buttonName then 
+                    
                     --check if the pidm already exists. if it does, then just update. else, insert
                     SELECT COUNT(*) INTO currPIDMCount FROM ven_senproj1.gerattd WHERE GERATTD_PIDM = pidm AND GERATTD_EVNT_CRN = output.slbevnt_crn;
-                
+                    
                     if currPIDMCount = 0 then
                         INSERT INTO ven_senproj1.gerattd(GERATTD_EVNT_CRN, GERATTD_FUNC_CODE, GERATTD_PIDM, GERATTD_TICKET_CNT, GERATTD_ACTIVITY_DATE)
                         VALUES (output.slbevnt_crn, 'TICKETS', pidm, 1, sysdate);
+                        
                     else
                         UPDATE ven_senproj1.gerattd
                         SET GERATTD_FUNC_CODE = 'TICKETS'
                         WHERE GERATTD_PIDM = pidm AND GERATTD_EVNT_CRN = output.slbevnt_crn AND GERATTD_FUNC_CODE = 'NOTICKETS';
+                        htp.p('<tr>');
+                        htp.p('<td CLASS="indefault">');
+                        htp.p('<SPAN class="newText">You are here #3!  </SPAN>');
+                        htp.p('</td>');
+                        htp.p('</tr>');      
+                        htp.p('<br />');
                     end if;
                     
                     -- notify student they have ticket
@@ -270,7 +329,13 @@ IS
                     p_message=>v_message,  
                     p_success_out=>v_success_out, 
                     p_reply_out=>v_reply_out); 
-                    
+                else
+                    htp.p('<tr>');
+                    htp.p('<td CLASS="indefault">');
+                    htp.p('<SPAN class="newText">You are here #3!  </SPAN>');
+                    htp.p('</td>');
+                    htp.p('</tr>');      
+                    htp.p('<br />'); 
                 end if;
             --else tickets are not available    
             else
@@ -330,77 +395,26 @@ IS
                 end if;
                end if;
             end if;
-        end if;
-            
-            
-        /* 
-        Else student does not have a ticket to the currentgame
-            If tickets are available
-                Display activate ticket button
-                If selected
-                    Add student to activate list
-                    Notify student that they have a ticket  
-            Else tickets are not available
-                if the student is on the waitlist 
-                        Display remove from waitlist button
-                        If selected
-                            Remove the student from the waitlist
-                            Notify student about waitlist removal
-                else not on the waitlist
-                        Display request waitlist ticket button
-                        If selected
-                            Add student to waitlist
-                            Notify student about waitlist addition
-        */
+        
+        
+        --they don't have a ticket and the current date is after the activation period, but before the game
+         elsif activation_begin > '02-NOV-17' and  '02-NOV-17' < output.ssrmeet_start_date then
+            --htp.formHidden(cname=>'p_ticketStatus',cvalue=> buttonName); 
+            --htp.formClose(cname=>'p_ticketStatus',cvalue=> buttonName);
 
-        
-        /*
-        -- if student has ticket
-        if statusLabel = 'Ticket' then
-            --setting the button's name to reflect the current game
-            buttonName := 'Deactivate Ticket For ' ||  REPLACE(REPLACE(output.slbevnt_DESC,'MBB vs ',''),18,'');
-            --htp.formsubmit(cname=>'p_ticketStatus',cvalue=> buttonName);
-            htp.formHidden(cname=>'p_ticketStatus',cvalue=> buttonName);
-        
-            --checking to see if the button the student selected is equal to the current button name
-            --if yes, then change the ticket status so the student no longer has a ticket
-            if p_ticketStatus = buttonName  then 
-                UPDATE ven_senproj1.gerattd
-                SET GERATTD_FUNC_CODE = 'NOTICKETS'
-                WHERE GERATTD_PIDM = pidm AND GERATTD_EVNT_CRN = output.slbevnt_crn AND GERATTD_FUNC_CODE = 'TICKETS';
-                --update the user's ticket status to 'NO TICKET' where it equals the current pidm and the current game code
-                
-            end if;
-        -- student does not have ticket
-        else
-            --setting the button's name to reflect the current game
-            buttonName := 'Request Ticket For ' ||  REPLACE(REPLACE(output.slbevnt_DESC,'MBB vs ',''),18,'');
-            htp.formsubmit(cname=>'p_ticketStatus',cvalue=> buttonName);
-            
-            -- activate button selected
-            --change the ticket status so the student has a ticket
-            if p_ticketStatus = buttonName then 
-                --check if the pidm already exists. if it does, then just update. else, insert
-                SELECT COUNT(*) INTO currPIDMCount FROM ven_senproj1.gerattd WHERE GERATTD_PIDM = pidm AND GERATTD_EVNT_CRN = output.slbevnt_crn;
-                
-                if currPIDMCount = 0 then
-                    INSERT INTO ven_senproj1.gerattd(GERATTD_EVNT_CRN, GERATTD_FUNC_CODE, GERATTD_PIDM, GERATTD_TICKET_CNT, GERATTD_ACTIVITY_DATE)
-                    VALUES (output.slbevnt_crn, 'TICKETS', pidm, 1, sysdate);
-                else
-                    UPDATE ven_senproj1.gerattd
-                    SET GERATTD_FUNC_CODE = 'TICKETS'
-                    WHERE GERATTD_PIDM = pidm AND GERATTD_EVNT_CRN = output.slbevnt_crn AND GERATTD_FUNC_CODE = 'NOTICKETS';
-                end if;
-                    
-            end if;
-        end if;
-        
-        */
+            htp.p('<tr>');
+            htp.p('<td CLASS="indefault">');
+            htp.p('<SPAN class="newText">The ticket management period has closed. We will see you on || output.ssrmeet_start_date ||  </SPAN>');
+            htp.p('</td>');
+            htp.p('</tr>');      
+            htp.p('<br />');
+         end if;
+         
         htp.p('<br />');
         htp.p('</DIV>'); 
         
         htp.p('</table>');
-    
+        --end if;
         
     END LOOP;
     
@@ -447,17 +461,14 @@ IS
         
     --creating the game creation form
     htp.p('<table  CLASS="plaintable" style="font-size:10pt;">');
+    
     htp.p('<tr>');
     htp.p('<td CLASS="pllabel"style="color:#003366; font-weight:bold;">Season</td>');
     htp.p('<TD CLASS="pldefault">');
-    htp.p('<select name=season>');
-    htp.p('<option value="18-19">1819</option>');
-    htp.p('<option value="19-20">1920</option>');
-    htp.p('<option value="20-21">2021</option>');
-    htp.p('</select>');
-    htp.p('<br>');
+    htp.p('<input type="text" name="season" maxlength="30" />');
     htp.p('</TD>');
     htp.p('</tr>');
+    
     htp.p('<tr>');
     htp.p('<td CLASS="pllabel"style="color:#003366; font-weight:bold;">Description</td>');
     htp.p('<TD CLASS="pldefault">');
@@ -538,6 +549,7 @@ IS
     htp.p('</table>');
     htp.p('<br>');
     
+    
     -- TODO: just added this because it looks like we used this above to make buttons go,
     -- need to figure out if this works.
     htp.formsubmit(cname=>'p_submit',cvalue=> 'Create Game');
@@ -547,19 +559,29 @@ IS
     dbms_output.put_line('#1 BEFORE CLICKING BUTTON'); 
     
     -- if p_submit is "Create Game" then add the game to the necessary tables
-    if p_submit = 'Create Game' then
-    
-        dbms_output.put_line('#2 Clicked the button'); 
-    
-        -- concatenate info from form into data we can put in the tables
-        -- TODO: This probably isn't going to work unless format is literally perfect!
-        evnt_description :=  game_description || season;
+    if p_submit = 'Create Game' then   
+        /*
+        htp.p('<tr>');
+        htp.p('<td CLASS="indefault">');
+        htp.p('<SPAN class="newText">You are here #3!  </SPAN>');
+        htp.p('</td>');
+        htp.p('</tr>');  
+        */
         
-        deactivation_end := TO_DATE(deactivation_period_end_date || ' ' || deactivation_period_end_time, 'YYYY-MM-DD HH24:MI:SS');
+        htp.p('<tr>');
+        htp.p('<td CLASS="indefault">');
+        htp.p('<SPAN class="newText">'|| deactivation_period_end_date || ' ' || deactivation_period_end_time || '</SPAN>');
+        htp.p('</td>');
+        htp.p('</tr>'); 
+    
+        evnt_description :=  game_description || ' ' || season;
         
+        -- deactivation_end := TO_DATE(deactivation_period_end_date || ' ' || deactivation_period_end_time, 'YYYY-MM-DD HH24:MI:SS');
+        /*
         activation_begin := TO_DATE(activation_period_start_date || ' ' || activation_period_start_time, 'YYYY-MM-DD HH24:MI:SS');
         activation_end := TO_DATE(activation_period_end_date || ' ' || activation_period_end_time, 'YYYY-MM-DD HH24:MI:SS');
         date_of_gam := TO_DATE(date_of_game, 'YYYY-MM-DD');
+        
         
         htp.p('<td CLASS="pllabel"style="color:#003366; font-weight:bold;">'|| start_of_game|| ' '|| end_of_game|| ' '||SYSDATE ||' ' || date_of_gam ||'</td>');
         -- add values neceessary for the ssrmeet
@@ -570,7 +592,7 @@ IS
             SSRMEET_START_DATE,SSRMEET_END_DATE,SSRMEET_FUNC_CODE, SSRMEET_SURROGATE_ID,SSRMEET_VERSION)
             VALUES ('EVENT','TTTLL', start_of_game, end_of_game, SYSDATE, date_of_gam, date_of_gam, 
             'TICKETS',-1,0);
-        /*
+        
         -- Add values necessary for the slbevnt
         -- TODO: Again need to do something about crn!
           insert into slbevnt --  SS 2/14/2019
@@ -585,43 +607,6 @@ IS
         */
     end if;
     
+    
   END GU_GameCreation;
 END hwswknow;
-
-
-
---      SELECT DISTINCT ssrmeet_start_date,
---         a.*
---      FROM gonz.tt_slbevnt a,
---        gonz.tt_ssrmeet, ven_senproj1.gerattd ger
---      WHERE slbevnt_desc LIKE 'MBB%'
---      AND slbevnt_crn         = ssrmeet_crn
---      AND ger.gerattd_evnt_crn = slbevnt_crn
---      AND ssrmeet_start_date >= '01-SEP-17'
---      --AND ger.gerattd_pidm = 478276
---      ORDER BY ssrmeet_start_date ASC;
-      
-      -- one we did with darren 11/30
-      /*
-      SELECT DISTINCT ssrmeet_start_date,
-         a.*, ger.gerattd_func_code
-      FROM gonz.tt_slbevnt a 
-      LEFT OUTER JOIN ven_senproj1.gerattd ger ON (ger.gerattd_evnt_crn = slbevnt_crn AND ger.gerattd_pidm = pidm), gonz.tt_ssrmeet
-      WHERE slbevnt_desc LIKE 'MBB%' 
-      AND slbevnt_crn = ssrmeet_crn
-      AND ssrmeet_start_date >= '01-SEP-17'
-      ORDER BY ssrmeet_start_date ASC;
-      */
-      
-            
-      
-      /*
-      SELECT ssrmeet_start_date,
-        a.*
-      FROM gonz.tt_slbevnt a,
-        gonz.tt_ssrmeet
-      WHERE slbevnt_desc LIKE 'MBB%'
-      AND slbevnt_crn         = ssrmeet_crn
-      AND ssrmeet_start_date >= '01-SEP-17'
-      ORDER BY ssrmeet_start_date ASC;
-      */
